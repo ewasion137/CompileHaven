@@ -23,31 +23,35 @@ jobs:
             autoconf \
             automake \
             libtool \
-            xorg-server-dev \
+            xz \
+            curl \
+            tar \
             libx11-dev \
             libx11-static \
             libxext-dev \
+            libxext-static \
             libxmu-dev \
+            libxmu-static \
             libxt-dev \
+            libxt-static \
             libsm-dev \
+            libsm-static \
             libice-dev \
+            libice-static \
             libxau-dev \
+            libxau-static \
             libxdmcp-dev \
-            curl \
-            tar \
-            git
+            libxdmcp-static
 
       - name: Download TWM Source
         run: |
-          # Официальный релиз X.Org twm
           curl -L -O https://www.x.org/releases/individual/app/twm-1.0.12.tar.xz
           tar -xf twm-1.0.12.tar.xz
 
       - name: Build Static TWM Binary
         run: |
           cd twm-1.0.12
-          
-          # Настраиваем сборку с жестким -static и зависимостями musl
+
           export CC="gcc"
           export CFLAGS="-O2 -static -fno-pie -no-pie"
           export LDFLAGS="-static -no-pie"
@@ -59,10 +63,8 @@ jobs:
             --disable-shared \
             LDFLAGS="-static -no-pie"
 
-          # Собираем
           make -j$(nproc) LDFLAGS="-all-static -static -no-pie"
 
-          # Проверяем, что бинарник действительно static ELF
           file src/twm
           strip src/twm
 
@@ -72,41 +74,8 @@ jobs:
           cp twm-1.0.12/src/twm output/twm.elf
           chmod +x output/twm.elf
 
-          # Создаем дефолтный простой .twmrc, если в системе не будет системного twmrc
-          cat << 'EOF' > output/system.twmrc
-          # Minimal EquantOS default twmrc
-          NoDefaults
-          Color
-          {
-              BorderColor "gray50"
-              DefaultBackground "gray70"
-              DefaultForeground "gray10"
-              TitleBackground "gray40"
-              TitleForeground "white"
-              MenuBackground "gray80"
-              MenuForeground "black"
-              MenuTitleBackground "gray60"
-              MenuTitleForeground "white"
-          }
-
-          Function "move-or-raise" { f.move f.deltastop f.raise }
-
-          Button1 = : root : f.menu "main"
-          Button1 = m : window : f.function "move-or-raise"
-          Button3 = m : window : f.resize
-
-          menu "main"
-          {
-              "EquantOS Menu"  f.title
-              "Terminal"       !"/bin/bash -i"
-              "Restart TWM"    f.restart
-              ""               f.nop
-              "Exit X11"       f.quit
-          }
-          EOF
-
       - name: Upload TWM Binary
         uses: actions/upload-artifact@v4
         with:
           name: twm-x86_64-static
-          path: output/*
+          path: output/twm.elf
