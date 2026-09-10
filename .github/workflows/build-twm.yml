@@ -1,0 +1,49 @@
+name: Build Static TWM for EquantOS
+
+on:
+  workflow_dispatch: # Позволяет запускать сборку кнопкой "Run workflow"
+
+jobs:
+  build-twm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Static TWM via Alpine Musl
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/out alpine:latest sh -c '
+            set -e
+            apk update
+            apk add --no-cache \
+              build-base git autoconf automake byacc flex pkgconf \
+              xorg-util-macros \
+              libx11-dev libx11-static \
+              libxext-dev libxext-static \
+              libxmu-dev libxmu-static \
+              libxt-dev libxt-static \
+              libsm-dev libsm-static \
+              libice-dev libice-static \
+              libxau-dev libxau-static \
+              libxdmcp-dev libxdmcp-static \
+              libxcb-dev libxcb-static
+
+            git clone --depth 1 https://gitlab.freedesktop.org/xorg/app/twm.git /tmp/twm
+            cd /tmp/twm
+            ./autogen.sh
+            ./configure \
+              --prefix=/usr \
+              --disable-shared \
+              --enable-static \
+              CFLAGS="-O2 -static" \
+              LDFLAGS="-static"
+            make -j$(nproc)
+            strip src/twm
+            cp src/twm /out/twm.elf
+          '
+
+      - name: Upload twm.elf Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: twm.elf
+          path: twm.elf
