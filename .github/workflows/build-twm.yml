@@ -1,49 +1,112 @@
-name: Build Static TWM for EquantOS
+name: Build Static TWM (musl)
 
 on:
-  workflow_dispatch: # Позволяет запускать сборку кнопкой "Run workflow"
+  push:
+    paths:
+      - '.github/workflows/build-twm.yml'
+  workflow_dispatch:
 
 jobs:
   build-twm:
     runs-on: ubuntu-latest
+    container: alpine:latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build Static TWM via Alpine Musl
+      - name: Install build dependencies
         run: |
-          docker run --rm -v ${{ github.workspace }}:/out alpine:latest sh -c '
-            set -e
-            apk update
-            apk add --no-cache \
-              build-base git autoconf automake byacc flex pkgconf \
-              xorg-util-macros \
-              libx11-dev libx11-static \
-              libxext-dev libxext-static \
-              libxmu-dev libxmu-static \
-              libxt-dev libxt-static \
-              libsm-dev libsm-static \
-              libice-dev libice-static \
-              libxau-dev libxau-static \
-              libxdmcp-dev libxdmcp-static \
-              libxcb-dev libxcb-static
+          apk update
+          apk add --no-cache \
+            build-base \
+            bison \
+            flex \
+            pkgconf \
+            autoconf \
+            automake \
+            libtool \
+            xorg-server-dev \
+            libx11-dev \
+            libx11-static \
+            libxext-dev \
+            libxmu-dev \
+            libxt-dev \
+            libsm-dev \
+            libice-dev \
+            libxau-dev \
+            libxdmcp-dev \
+            curl \
+            tar \
+            git
 
-            git clone --depth 1 https://gitlab.freedesktop.org/xorg/app/twm.git /tmp/twm
-            cd /tmp/twm
-            ./autogen.sh
-            ./configure \
-              --prefix=/usr \
-              --disable-shared \
-              --enable-static \
-              CFLAGS="-O2 -static" \
-              LDFLAGS="-static"
-            make -j$(nproc)
-            strip src/twm
-            cp src/twm /out/twm.elf
-          '
+      - name: Download TWM Source
+        run: |
+          # Официальный релиз X.Org twm
+          curl -L -O https://www.x.org/releases/individual/app/twm-1.0.12.tar.xz
+          tar -xf twm-1.0.12.tar.xz
 
-      - name: Upload twm.elf Artifact
+      - name: Build Static TWM Binary
+        run: |
+          cd twm-1.0.12
+          
+          # Настраиваем сборку с жестким -static и зависимостями musl
+          export CC="gcc"
+          export CFLAGS="-O2 -static -fno-pie -no-pie"
+          export LDFLAGS="-static -no-pie"
+          export PKG_CONFIG="pkg-config --static"
+
+          ./configure \
+            --prefix=/usr \
+            --enable-static \
+            --disable-shared \
+            LDFLAGS="-static -no-pie"
+
+          # Собираем
+          make -j$(nproc) LDFLAGS="-all-static -static -no-pie"
+
+          # Проверяем, что бинарник действительно static ELF
+          file src/twm
+          strip src/twm
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p output
+          cp twm-1.0.12/src/twm output/twm.elf
+          chmod +x output/twm.elf
+
+          # Создаем дефолтный простой .twmrc, если в системе не будет системного twmrc
+          cat << 'EOF' > output/system.twmrc
+          # Minimal EquantOS default twmrc
+          NoDefaults
+          Color
+          {
+              BorderColor "gray50"
+              DefaultBackground "gray70"
+              DefaultForeground "gray10"
+              TitleBackground "gray40"
+              TitleForeground "white"
+              MenuBackground "gray80"
+              MenuForeground "black"
+              MenuTitleBackground "gray60"
+              MenuTitleForeground "white"
+          }
+
+          Function "move-or-raise" { f.move f.deltastop f.raise }
+
+          Button1 = : root : f.menu "main"
+          Button1 = m : window : f.function "move-or-raise"
+          Button3 = m : window : f.resize
+
+          menu "main"
+          {
+              "EquantOS Menu"  f.title
+              "Terminal"       !"/bin/bash -i"
+              "Restart TWM"    f.restart
+              ""               f.nop
+              "Exit X11"       f.quit
+          }
+          EOF
+
+      - name: Upload TWM Binary
         uses: actions/upload-artifact@v4
         with:
-          name: twm.elf
-          path: twm.elf
+          name: twm-x86_64-static
+          path: output/*
