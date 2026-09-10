@@ -31,6 +31,7 @@ jobs:
             xorgproto \
             libx11-dev \
             libx11-static \
+            libxcb-static \
             libxext-dev \
             libice-dev \
             libsm-dev \
@@ -94,6 +95,7 @@ jobs:
           export CFLAGS="-O2 -static -fno-pie -no-pie -std=gnu11 -D_GNU_SOURCE"
           export LDFLAGS="-static -no-pie"
           export PKG_CONFIG="pkg-config --static"
+          export LIBS="-lxcb -lXau -lXdmcp"
 
           ./configure \
             --prefix=/usr \
@@ -101,7 +103,7 @@ jobs:
             --disable-shared \
             LDFLAGS="-static -no-pie"
 
-          make -j$(nproc) LDFLAGS="-all-static -static -no-pie"
+          make -j$(nproc) LDFLAGS="-static -no-pie"
 
           file src/twm
           strip src/twm
