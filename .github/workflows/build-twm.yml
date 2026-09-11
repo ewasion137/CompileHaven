@@ -27,6 +27,7 @@ jobs:
             xz \
             curl \
             tar \
+            binutils \
             linux-headers \
             xorgproto \
             libx11-dev \
@@ -44,49 +45,49 @@ jobs:
         run: |
           export CFLAGS="-O2 -fPIC -std=gnu11 -D_GNU_SOURCE -include stdint.h"
 
-          # 1. Static libXau
+          # 1. libXau
           curl -L -O https://www.x.org/releases/individual/lib/libXau-1.0.11.tar.xz
           tar -xf libXau-1.0.11.tar.xz && cd libXau-1.0.11
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 2. Static libXdmcp
+          # 2. libXdmcp
           curl -L -O https://www.x.org/releases/individual/lib/libXdmcp-1.1.4.tar.xz
           tar -xf libXdmcp-1.1.4.tar.xz && cd libXdmcp-1.1.4
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 3. Static libXt (1.3.1)
+          # 3. libXt
           curl -L -O https://www.x.org/releases/individual/lib/libXt-1.3.1.tar.xz
           tar -xf libXt-1.3.1.tar.xz && cd libXt-1.3.1
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 4. Static libXmu
+          # 4. libXmu
           curl -L -O https://www.x.org/releases/individual/lib/libXmu-1.2.1.tar.xz
           tar -xf libXmu-1.2.1.tar.xz && cd libXmu-1.2.1
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 5. Static libSM
+          # 5. libSM
           curl -L -O https://www.x.org/releases/individual/lib/libSM-1.2.4.tar.xz
           tar -xf libSM-1.2.4.tar.xz && cd libSM-1.2.4
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 6. Static libICE
+          # 6. libICE
           curl -L -O https://www.x.org/releases/individual/lib/libICE-1.1.1.tar.xz
           tar -xf libICE-1.1.1.tar.xz && cd libICE-1.1.1
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 7. Static libXext
+          # 7. libXext
           curl -L -O https://www.x.org/releases/individual/lib/libXext-1.3.6.tar.xz
           tar -xf libXext-1.3.6.tar.xz && cd libXext-1.3.6
           ./configure --prefix=/usr --enable-static --disable-shared
@@ -99,14 +100,44 @@ jobs:
           tar -xf twm-1.0.12.tar.xz
           cd twm-1.0.12
 
+          # Зашиваем -static и -no-pie прямо в компилятор
+          export CC="gcc -static -no-pie"
+          export CFLAGS="-O2 -std=gnu11 -D_GNU_SOURCE"
+
           ./configure --prefix=/usr
 
-          make -j$(nproc) CFLAGS="-O2 -no-pie -fno-pie -std=gnu11 -D_GNU_SOURCE" \
-            twm_LDFLAGS="-static -no-pie" \
-            twm_LDADD="-lXmu -lXt -lSM -lICE -lXext -lX11 -lxcb -lXau -lXdmcp"
+          # Собираем объектники
+          make -j$(nproc)
 
-          file src/twm
+          # Перелинковываем twm строго со статическими архивами напрямую
+          gcc -static -no-pie src/*.o -o src/twm \
+            /usr/lib/libXmu.a \
+            /usr/lib/libXt.a \
+            /usr/lib/libSM.a \
+            /usr/lib/libICE.a \
+            /usr/lib/libXext.a \
+            /usr/lib/libX11.a \
+            /usr/lib/libxcb.a \
+            /usr/lib/libXau.a \
+            /usr/lib/libXdmcp.a
+
           strip src/twm
+
+      - name: Verify 100% Static ELF
+        run: |
+          echo "=== File Info ==="
+          file twm-1.0.12/src/twm
+
+          echo "=== Program Headers ==="
+          readelf -l twm-1.0.12/src/twm
+
+          # Жесткий фейл пайплайна если пролез динамический линкер
+          if readelf -l twm-1.0.12/src/twm | grep -E 'INTERP|DYNAMIC'; then
+            echo "ERROR: Binary is DYNAMIC! Compilation failed."
+            exit 1
+          fi
+
+          echo "SUCCESS: 100% STATIC ELF VERIFIED."
 
       - name: Prepare Artifact
         run: |
