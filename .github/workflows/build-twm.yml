@@ -28,10 +28,12 @@ jobs:
             curl \
             tar \
             binutils \
+            python3 \
             linux-headers \
             xorgproto \
             libx11-dev \
             libx11-static \
+            libxcb-dev \
             libxcb-static \
             libxext-dev \
             libice-dev \
@@ -45,49 +47,49 @@ jobs:
         run: |
           export CFLAGS="-O2 -fPIC -std=gnu11 -D_GNU_SOURCE -include stdint.h"
 
-          # 1. libXau
+          # 1. Static libXau
           curl -L -O https://www.x.org/releases/individual/lib/libXau-1.0.11.tar.xz
           tar -xf libXau-1.0.11.tar.xz && cd libXau-1.0.11
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 2. libXdmcp
+          # 2. Static libXdmcp
           curl -L -O https://www.x.org/releases/individual/lib/libXdmcp-1.1.4.tar.xz
           tar -xf libXdmcp-1.1.4.tar.xz && cd libXdmcp-1.1.4
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 3. libXt
+          # 3. Static libXt (1.3.1)
           curl -L -O https://www.x.org/releases/individual/lib/libXt-1.3.1.tar.xz
           tar -xf libXt-1.3.1.tar.xz && cd libXt-1.3.1
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 4. libXmu
+          # 4. Static libXmu
           curl -L -O https://www.x.org/releases/individual/lib/libXmu-1.2.1.tar.xz
           tar -xf libXmu-1.2.1.tar.xz && cd libXmu-1.2.1
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 5. libSM
+          # 5. Static libSM
           curl -L -O https://www.x.org/releases/individual/lib/libSM-1.2.4.tar.xz
           tar -xf libSM-1.2.4.tar.xz && cd libSM-1.2.4
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 6. libICE
+          # 6. Static libICE
           curl -L -O https://www.x.org/releases/individual/lib/libICE-1.1.1.tar.xz
           tar -xf libICE-1.1.1.tar.xz && cd libICE-1.1.1
           ./configure --prefix=/usr --enable-static --disable-shared
           make -j$(nproc) && make install
           cd ..
 
-          # 7. libXext
+          # 7. Static libXext
           curl -L -O https://www.x.org/releases/individual/lib/libXext-1.3.6.tar.xz
           tar -xf libXext-1.3.6.tar.xz && cd libXext-1.3.6
           ./configure --prefix=/usr --enable-static --disable-shared
@@ -100,17 +102,14 @@ jobs:
           tar -xf twm-1.0.12.tar.xz
           cd twm-1.0.12
 
-          # Зашиваем -static и -no-pie прямо в компилятор
-          export CC="gcc -static -no-pie"
-          export CFLAGS="-O2 -std=gnu11 -D_GNU_SOURCE"
+          ./configure --prefix=/usr CFLAGS="-O2 -std=gnu11 -D_GNU_SOURCE -fno-pie"
 
-          ./configure --prefix=/usr
+          # Компилируем объектные файлы (игнорируем ошибку финального линкера autotools, если он споткнется)
+          make -j$(nproc) || true
 
-          # Собираем объектники
-          make -j$(nproc)
-
-          # Перелинковываем twm строго со статическими архивами напрямую
+          # Жесткая чистая статическая линковка напрямую
           gcc -static -no-pie src/*.o -o src/twm \
+            -Wl,--start-group \
             /usr/lib/libXmu.a \
             /usr/lib/libXt.a \
             /usr/lib/libSM.a \
@@ -119,7 +118,8 @@ jobs:
             /usr/lib/libX11.a \
             /usr/lib/libxcb.a \
             /usr/lib/libXau.a \
-            /usr/lib/libXdmcp.a
+            /usr/lib/libXdmcp.a \
+            -Wl,--end-group
 
           strip src/twm
 
@@ -131,9 +131,9 @@ jobs:
           echo "=== Program Headers ==="
           readelf -l twm-1.0.12/src/twm
 
-          # Жесткий фейл пайплайна если пролез динамический линкер
+          # Падение если есть динамические секции
           if readelf -l twm-1.0.12/src/twm | grep -E 'INTERP|DYNAMIC'; then
-            echo "ERROR: Binary is DYNAMIC! Compilation failed."
+            echo "ERROR: Binary is DYNAMIC!"
             exit 1
           fi
 
