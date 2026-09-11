@@ -28,12 +28,10 @@ jobs:
             curl \
             tar \
             binutils \
-            python3 \
             linux-headers \
             xorgproto \
             libx11-dev \
             libx11-static \
-            libxcb-dev \
             libxcb-static \
             libxext-dev \
             libice-dev \
@@ -98,16 +96,19 @@ jobs:
 
       - name: Build Static TWM Binary
         run: |
+          # Сбрасываем любые флаги компилятора, чтобы configure прошел идеально
+          unset CFLAGS LDFLAGS LIBS CC
+
           curl -L -O https://www.x.org/releases/individual/app/twm-1.0.12.tar.xz
           tar -xf twm-1.0.12.tar.xz
           cd twm-1.0.12
 
-          ./configure --prefix=/usr CFLAGS="-O2 -std=gnu11 -D_GNU_SOURCE -fno-pie"
+          ./configure --prefix=/usr
 
-          # Компилируем объектные файлы (игнорируем ошибку финального линкера autotools, если он споткнется)
+          # Компилируем объектные файлы
           make -j$(nproc) || true
 
-          # Жесткая чистая статическая линковка напрямую
+          # Прямая статическая линковка ELF: без INTERP, без DYNAMIC
           gcc -static -no-pie src/*.o -o src/twm \
             -Wl,--start-group \
             /usr/lib/libXmu.a \
@@ -131,9 +132,9 @@ jobs:
           echo "=== Program Headers ==="
           readelf -l twm-1.0.12/src/twm
 
-          # Падение если есть динамические секции
+          # Строгая проверка: если есть INTERP или DYNAMIC - билд падает
           if readelf -l twm-1.0.12/src/twm | grep -E 'INTERP|DYNAMIC'; then
-            echo "ERROR: Binary is DYNAMIC!"
+            echo "ERROR: Binary is DYNAMIC! Compilation failed."
             exit 1
           fi
 
