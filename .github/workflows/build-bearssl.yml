@@ -1,0 +1,79 @@
+name: Build Static libbearssl.a (musl)
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-bearssl.yml'
+  workflow_dispatch:
+
+jobs:
+  build-bearssl:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+
+    steps:
+      - name: Install build tools
+        run: |
+          apk update
+          apk add --no-cache \
+            build-base \
+            git \
+            binutils \
+            tar
+
+      - name: Clone BearSSL
+        run: |
+          git clone https://www.bearssl.org/git/BearSSL
+          cd BearSSL
+
+      - name: Build Static Library
+        run: |
+          cd BearSSL
+
+          # Флаги компиляции: без разделяемых библиотек, без PIE, чистая статика
+          make -j$(nproc) \
+            CC="gcc" \
+            CFLAGS="-O2 -fno-pie -fno-stack-protector -D_GNU_SOURCE" \
+            AR="ar" \
+            LD="gcc" \
+            LDFLAGS="-static -no-pie" \
+            lib
+
+          # Проверяем, что создался именно статический архив
+          file build/libbearssl.a
+
+      - name: Verify Archive & Object Files
+        run: |
+          cd BearSSL
+          echo "=== List of objects in libbearssl.a ==="
+          ar -t build/libbearssl.a | head -n 20
+
+          # Убеждаемся, что внутри архива лежат честные статические ELF-объектники
+          ar -x build/libbearssl.a ssl_engine.o
+          readelf -h ssl_engine.o
+
+          # Проверка: объектник должен быть REL (Relocatable object), никакого DYNAMIC/EXEC
+          if ! readelf -h ssl_engine.o | grep -q "Type:[[:space:]]*REL"; then
+            echo "ERROR: Object file is not relocatable!"
+            exit 1
+          fi
+
+          echo "SUCCESS: libbearssl.a is 100% static library archive."
+
+      - name: Prepare Artifact
+        run: |
+          mkdir -p output/include output/lib
+          cp BearSSL/build/libbearssl.a output/lib/
+          cp BearSSL/inc/*.h output/include/
+
+          # Создаем tar-архив с либой и хедерами для удобного скачивания
+          tar -czvf output/bearssl-musl-static.tar.gz -C output lib include
+
+      - name: Upload BearSSL Static Library
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbearssl-x86_64-static
+          path: |
+            output/lib/libbearssl.a
+            output/include/*.h
+            output/bearssl-musl-static.tar.gz
